@@ -1,0 +1,277 @@
+---
+title: "The Little and Su Method: Panel Data Imputation"
+author: "Julian Bernado"
+output:
+    html_document:
+      number_sections: yes
+      toc: yes
+      toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{little_and_su}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library("LittleAndSu")
+```
+
+# Introduction
+The Little and Su Method of imputation, introduced in the chapter "Item nonresponse in panel surveys" in *Panel Surveys* (1989), is a method of imputing missing values in panel data. As opposed to more general methods, this method makes use of the longitudinal structure of the data. We take interest in this method due to its use in various surveying organizations and a simulation study that show its benefits (Watson and Starick 2011). Regardless, we note that there is room for the improvement in the algorithm. While we introduce some such improvements in a later section, there is room for more. This vignette will provide an explanation of the Little and Su method as well as examples of how to make use of it in the `LittleAndSu` package.
+
+# The Method
+
+The Little and Su method of imputation is a single imputation method for a single covariate in a longitudinal dataset. Sometimes called "row by column imputation," the Little and Su method's imputations are informed by a row effect, for which one exists per person, and a column effect, for which one exists per time period in the data. These two effects are also called individual effects and wave effects respectively. Furthermore, the original Little and Su method notably does not make use of other covariates to inform its imputations. So if there is some outside covariate that would be very predictive of missing variables the original Little and Su method may not be appropriate. Use of the method in the past has focused on the imputation of income, but its imputations may be useful when imputing any covariate with a strong correlational structure by row and column. 
+
+## Formal Outline
+
+Let $Y \in \mathbb{R}^{N\times T}$ be a matrix containing $T$ (potentially missing) observations for each of $N$ individuals. Furthermore, let $1 < C < N$ be the number of individuals with no missing values. Referring to these as the complete cases, we order $Y$ such that the first $C$ rows are complete cases. So, there are $N - C$ incomplete cases that will be imputed.  
+
+Before imputation, we calculate the wave effects that will inform our imputation. We do this using only the complete cases. So, for each column $t \in \{1, 2, ..., T\}$ calculate the column's average amongst the complete cases.
+
+$$\bar{Y}_t \equiv \frac{1}{T}\sum_{i=1}^C Y_{it}$$
+Then, the wave effect, denoted $w_t$, for column $t$ is equal to the column average divided by the average of all column averages.
+
+$$w_t \equiv \frac{\bar{Y}_t}{\frac{1}{T}\sum_{j=1}^T \bar{Y}_j}$$
+
+The wave effect can be seen as indicating how our outcome variable in a wave compares to the others. A wave effect close to 0 indicates that in wave $t$ the outcome was relatively low. A wave effect close to 1 would indicate that the outcome is about average, and a wave effect far greater than 1 would indicate that the outcome was relatively high. This wave effect is used to encode the variation in the outcome over time.  
+
+Next, for each row $i \in \{1, 2, ..., N\}$, let $K_i \subset \{1, 2, ..., T\}$ denote the waves for $Y_{ij}$ is observed. Then, we define the row effect $r_i$ as
+
+$$r_i \equiv \frac{1}{|K_i|}\sum_{t\in K_i} \frac{Y_{it}}{w_t}$$
+
+Where $|K_i|$ denotes the number of elements in the set $K_i$. Note that for $1 \leq i \leq C$ we will have $K_i = \{1, 2, ..., T\}$. The row effect for individual $i$ is thus a weighted average of the outcome in years where it was observed in individual $i$. The row effect will be used to compare how similar different rows are.  
+
+Armed with our $T$ wave effects and $N$ row effects, we can now start imputing. Let $Y_{it}$ be a missing observation of the matrix $Y$. Furthermore, let $d$ be the index of a complete case whose row effect is closest to $r_i$. Formally, 
+
+$$d = \text{argmin}_{1 \leq k \leq C } |r_k - r_i|$$
+
+Individual $d$ will be referred to as the donor to individual $i$. With our donor figured out, we impute the value $\tilde{Y_{it}}$ where
+
+$$\tilde{Y_{it}} \equiv (r_i)\cdot(w_t)\cdot(\frac{Y_{dt}}{r_d \cdot w_d}).$$
+
+Where $Y_{dt}$ is the donor's value for the outcome in wave $t$. This will always be present since the donor is a complete case. We present the imputation like this to draw the connection between the method and its occasional name — "row by column imputation." The first term is the row effect, the second term is the wave, or column, effect, and the third term is considered a "stochastic component." With some simplification, one may notice
+
+$$(r_i)\cdot(w_t)\cdot(\frac{Y_{dt}}{r_d \cdot w_t}) = \left(\frac{r_i}{r_d}\right)Y_{dt}.$$
+
+So, our imputed value can just be seen as a scaled version of the donor's value in the wave for which we want to impute. As $r_d$ is selected to be close to $r_i$, we should expect this scaling factor $\left(\frac{r_i}{r_d}\right)$ to be somewhat close to 1. We're essentially finding a comparable row and imputing its value in this column with a slight scaling factor. Do this for all missing entries to get a matrix $\tilde{Y}$ with imputed values, completing your imputation.
+
+Note that our definition of the row effect $r_i$  implicitly assumes that $|K_i| \neq 0$, in other words, there is at least some observed value in a given row. If there are rows with no observed values, we simply do not impute. As the basic Little and Su method does not take into account other variables there is no reasonable imputation for such missing values and one should look to some backup method that takes into account other covariates one might have. Furthermore, we assume that there is at least one complete case. For panel data with many waves this may not be true, and even so, many of our calculations are based on the complete cases. If your data does not have many complete cases consider looking into the windows option mentioned later. 
+
+## Example
+
+We now run through an example of the algorithm. Consider the $4 \times 3$ matrix
+
+$$T = \begin{bmatrix}
+1 & 2 & 3\\
+10 & 20 & 30\\
+2 & 4 & 6\\
+20 & 40 & 60\\
+\end{bmatrix}$$
+
+$T$ is constructed with intentionally exaggerated row effects to demonstrate the situations that the Little and Su method takes advantage of. But, imagine that one only observes the partially missing matrix
+
+$$Y = \begin{bmatrix}
+1 & 2 & 3\\
+10 & 20 & 30\\
+2 & NA & 6\\
+20 & 40 & NA\\
+\end{bmatrix}$$
+
+where $NA$ denotes a missing value. We also note that there is a consistent wave effect — our values are increasing over time. Now, according to our algorithm we first restrict our attention to the complete rows which are the first two. Now we calculate the averages of each column amongs the complete cases. We see
+
+$$\bar{Y_1} = \frac{11}{2}, \bar{Y_2} = 11, \bar{Y_3} = \frac{33}{2}$$
+
+Now, we note that average of these values is 11. So in calculating our wave effects we divide the above values by 11 to see
+
+$$w_1 = \frac{1}{2}, w_2 = 1, w_3 = \frac{3}{2}$$
+
+We see here that the high wave effect aligns with the intuition that our outcome was higher in that year and similarly for a low wave effect. Armed with the wave effects we can now calculate the row effects. We see then,
+
+\[
+\begin{align}
+r_1 &= \frac{1}{3}\left(\frac{1}{1/2} + \frac{2}{1} + \frac{3}{3/2}\right) = 2 \\
+r_2 &= \frac{1}{3}\left(\frac{10}{1/2} + \frac{20}{1} + \frac{30}{3/2}\right) = 20\\
+r_3 &= \frac{1}{2}\left(\frac{2}{1/2} + \frac{6}{3/2}\right) = 4\\
+r_4 &= \frac{1}{2}\left(\frac{20}{1/2} + \frac{40}{1}\right) = 40
+\end{align}
+\]
+
+Here we see how contrived our example is, but it illustrates the idea that rows that "should be" similar will have similar row effects. Now we can start imputing. For the missing value in row 3, we identify the donor as the row whose row effect is closest to 4. In this case, this is clearly row one. So, our imputed value is
+
+$$\tilde{Y}_{3,2} = \frac{r_3}{r_1}Y_{1,2} = \frac{4}{2}\cdot2 = 4$$
+
+So, we impute the value 4. For the missing value in row 4 we similarly see
+
+$$\tilde{Y}_{4,3} = \frac{r_4}{r_2}Y_{2,3} = \frac{40}{20}\cdot 30 = 60$$
+
+In all, our imputed data matrix is
+
+$$\tilde{Y} = \begin{bmatrix}
+1 & 2 & 3\\
+10 & 20 & 30\\
+2 & 4 & 6\\
+20 & 40 & 60\\
+\end{bmatrix}$$
+
+and so $\tilde{Y} = T$ and our imputation is correct. As stated, this example is contrived but should serve as an case in which Little and Su imputation works perfectly. Now let's use the function in R to automatically compute this matrix.
+
+## Example Code
+
+Let's run through the same example but in R. First we initialize our observed matrix.
+
+```{r}
+Y = rbind(
+  c(1, 2, 3),
+  c(10, 20, 30),
+  c(2, NA, 6),
+  c(20, 40, NA)
+)
+```
+
+The next step is the final step and it's easy. We just call the ```little_and_su()``` function on our incomplete matrix ```Y```. Now we see our imputed data matrix is 
+
+```{r}
+print(little_and_su(Y), row.names = FALSE)
+```
+
+If your dataframe has a column containing the IDs of the various rows, as some survey dataset might, we can deal with this without removing and reattaching the column. Simply supply the index (or name) of the column with the `id_col` argument.
+
+```{r}
+Y_id = cbind(c(1, 2, 3, 4), Y)
+print(little_and_su(Y_id, id_col = 1), row.names = FALSE)
+```
+
+We get the correct matrix with our id column untouched. Also, we'll demonstrate what happens when we have an entirely missing column
+
+```{r}
+Y_mis = rbind(Y, c(NA, NA, NA))
+print(little_and_su(Y_mis), row.names = FALSE)
+```
+
+As we can see, the third and fourth rows are imputed but not the entirely missing row. Furthermore, if you want to be alerted about these kinds of things, you can set the argument `verbose = TRUE`.
+
+```{r}
+print(little_and_su(Y_mis, verbose = TRUE), row.names = FALSE)
+```
+
+The function is relatively easy to use as long as the dataset is in wide format with each column representing the outcome in a different wave. Also, supplying a data.frame, matrix, or tibble are all equally valid. The imputed matrix will always be returned as a data.frame though.
+
+# Expansions on the Method
+
+The initial algorithm, proposed in 1989, stands on its own, but over time improvements were found. We focus our attention on two papers: Watson and Starick's 2011 review of various imputation strategies which introduces imputation classes to the Little and Su method, and Watson and Li's 2016 paper which introduces windows to the Little and Su method.  
+
+All these expansions of the Little and Su method will be explained in the following sections with accompanying R code.
+
+## Imputation Classes
+
+Watson and Starick (2011) propose the use of imputation classes to improve the imputations in the Little and Su method. An imputation class is defined as some time-independent categorical variable we have observed in each of the individuals. When using imputation classes, a donor for a given incomplete case must come from the same imputation class. For some datasets a reasonable variable upon which to form imputation classes may be age bracket (Watson and Starick 2011). In formal terms, let $M$ be the set of all imputation classes arising from a variable and let $m_i$ be the imputation class of row $i$. Then, the only difference of the imputation classes variation is that $d$ is defined as
+
+$$d \equiv \text{argmin} \{|r_i - r_k| : m_k = m_i, 1\leq k \leq C\}$$
+
+For an example, consider the following situation. We record income on three different Americans in 2006, 2007, and 2008. One works in an unrelated field but the final two are real estate agents. Imagine that their true incomes are as follows:
+
+```{r}
+true_income = rbind(
+  c(50000, 55000, 45000),
+  c(100000, 120000, 70000),
+  c(50000, 60000, 32000)
+)
+```
+
+Because of the 2008 housing crisis and the ensuing recession, everyone's income goes down in 2008, but the real estate agents are hurt more. Now, let us imagine that individual 3 does not answer the survey in 2008 — they have more important things to worry about. So, our observed values are actually as follows:
+
+```{r}
+observed_values = rbind(
+  c(50000, 55000, 45000),
+  c(100000, 120000, 70000),
+  c(50000, 60000, NA)
+)
+```
+
+Now if we wish to impute the missing value using the Little and Su method, the donor that we match to individual 3 will be individual 1 who works in an unrelated field. Because of this, our imputed value will be ~$44,000
+
+```{r}
+print(little_and_su(observed_values)[3,3], row.names = FALSE)
+```
+
+We have more information though! We know that the final two individuals are both in real estate, so we should use that. This is where imputation classes come in. Observe the following code:
+
+```{r}
+work_type = as.factor(c("unrelated", "real_estate", "real_estate"))
+observed_values = cbind(work_type, observed_values)
+```
+
+Now one of the columns in our matrix details the type of work done by each individual. If we want work type to be prioritized over the closeness of individual effects, we can simply indicate that one of the columns in our dataframe carries the imputation classes. As seen below we get a new imputation:
+
+```{r}
+imputed_income = little_and_su(observed_values, imputation_classes_col = 1)
+print(paste0("Our imputed value is ", imputed_income[3,4]))
+```
+
+Using imputation classes, we impute ~$36,000. We're not dead-on, but we're about \$8,000 closer. As is implied in this example, imputation classes are most useful if you have a strong a priori belief that they would increase the accuracy of the imputation. Furthermore, if there are any imputation classes with no complete cases then we will not be able to impute any of the incomplete cases in that imputation class. If worried about this, set `verbose = TRUE` in the `little_and_su` function to see why certain values weren't imputed.
+
+## Windows
+
+One more issue may arise in calculations using the Little and Su algorithm due to its reliance on complete cases. If a dataset has a particularly long panel, then there may be few complete cases. Imputation may then be flawed if missing data is imputed using donor values from only a small fraction of the dataset. To alleviate some of these issues, donation windows were proposed in the 2016 paper by Watson and Li. Using donation windows, one can calculate the individual effect for a row only using values within a certain window around its missing value. We then calculate the individual effect of each row in that window and donate one who has no missing values in that window. Consider the data matrix below.
+
+$$Y = \begin{bmatrix}
+10 & 15 & 20 & 25 & 30\\
+1 & NA & 3 & 4 & 5\\
+1 & 2 & 3 & NA & 5\\
+\end{bmatrix}$$
+
+In the normal Little and Su case, we would use the first row as a donor for the other two rows since it is the only complete case. It's clear though that the last two rows match each other better than the first matches either of them. Windows would allow us to impute using these incomplete cases. When using windows, the calculation of wave effects is the same — based on all complete cases. The variation comes in the calculation of individual effects. Instead of calculating an individual effect for each row, we instead calculate individual effects within a window. Prior to running the algorithm, a window length should be specified. In this case we'll work with a window length of 3. With that decided, we go to our first NA value. With our original wave effects still, we now calculate the individual effects within a window of length 3 around the NA value. We see this submatrix below
+
+$$\begin{bmatrix}
+10 & 15 & 20\\
+1 & NA & 3\\
+1 & 2 & 3
+\end{bmatrix}$$
+
+Using the existing wave effects, we then calculate the individual effects in this submatrix in the same way that they were calculated in the standard Little and Su method. From there, we find the one with the closest individual effect to our incomplete row and impute just as we did in the standard Little and Su method. We would then move on to the next missing value, focus our attention on the submatrix
+
+$$\begin{bmatrix}
+20 & 25 & 30\\
+3 & 4 & 5\\
+3 & NA & 5\\
+\end{bmatrix}$$
+
+and complete the same procedure. We see the difference in the imputations of the matrix $Y$ using the standard Little and Su and the windows version below
+
+```{r}
+Y = rbind(
+  c(10, 15, 20, 25, 30),
+  c(1, NA, 3, 4, 5),
+  c(1, 2, 3, NA, 5)
+)
+
+#Standard Little and Su imputation
+print(little_and_su(Y), row.names = FALSE)
+
+#Little and Su imputation with windows
+print(little_and_su(Y, window = 3), row.names = FALSE)
+```
+
+
+Where the latter imputations are closer to what we might expect the values to be (2 and 4). As a technical note, if the window that surrounds an NA value hits an edge, the window will wrap around so that it is always of the supplied length. For example, a window of length 3 around the NA value in the following row
+
+$$\begin{bmatrix} NA & 2 & 3 & 4 & 5 \end{bmatrix}$$
+
+would be
+
+$$\begin{bmatrix} NA & 2 & 3\end{bmatrix}$$
+
+In the windows variation of Little and Su, we make use of individuals who are missing some values but still have valuable information within a certain time period. Even if one does not have a complete case problem, the other possibly attractive feature of using windows is that individual effects are now localized around the time when there is a value to be imputed. So, if individual $A$ is closer to individual $B$ around the time that $A$ needs an imputation, we will still get the value from $B$ even if $B$ later diverges and is very different from $A$. Practical results can be seen in Watson and Li (2016).
+
+# References
+
+Little, R.J.A. and H.L. Su (1989). Item nonresponse in panel surveys. In Panel Surveys, D. Kasprzyk, G. Duncan & M.P. Singh, eds., New York: John Wiley, 400‑425.
+
+Watson, N. and N. Li. “Evaluating potential improvements to the income imputation methods for the HILDA Survey.” (2016).
+
+Watson, N. and R. Starick. “Evaluation of Alternative Income Imputation Methods for a Longitudinal Survey.” Journal of Official Statistics 27 (2011): 693-715.
