@@ -1,12 +1,12 @@
 Package: LittleAndSu
-Title: What the Package Does (One Line, Title Case)
-Version: 0.0.0.9000
+Title: Imputes Missing Values in Longitudinal Data Using the Little and Su Algorithm
+Version: 1.0.0
 Authors@R: 
     person(given = "Julian",
            family = "Bernado",
            role = c("aut", "cre"),
            email = "jbernado@stanford.edu")
-Description: What the package does (one paragraph).
+Description: The LittleAndSu package implements the Little And Su algorithm, also known as the row-by-column method, of imputing missing values in a longitudinal dataset. This specific imputation algorithm, introduced in a chapter of Panel Surveys (1989) by D. Kasprzyk, G. Duncan and M.P. Singh, exploits data that has a strong correlational structure by row and by column. The method has been shown empirically to be well-suited for handling missing income values. 
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
