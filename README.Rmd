@@ -22,9 +22,17 @@ The LittleAndSu package implements the Little and Su algorithm first presented i
 
 ## Installation
 
-You can install LittleAndSu from Github by running the following two lines
+You can install LittleAndSu from Github by running the following two lines in R.
 
 ``` r
 if(!require("devtools")) install.packages("devtools")
-devtools::install_github("julianbernado/LittleAndSu")
+devtools::install_github("julianbernado/LittleAndSu", build_vignettes = TRUE)
 ```
+
+If you're interested in learning the specifics of the Little and Su algorithm I recommend checking out the packages's vignette by running
+
+``` r
+browseVignettes(package = "LittleAndSu")
+```
+
+in R.

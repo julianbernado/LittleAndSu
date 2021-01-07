@@ -18,9 +18,18 @@ the other by Watson and Li in 2016.
 ## Installation
 
 You can install LittleAndSu from Github by running the following two
-lines
+lines in R.
 
 ``` r
 if(!require("devtools")) install.packages("devtools")
-devtools::install_github("julianbernado/LittleAndSu")
+devtools::install_github("julianbernado/LittleAndSu", build_vignettes = TRUE)
 ```
+
+If you’re interested in learning the specifics of the Little and Su
+algorithm I recommend checking out the packages’s vignette by running
+
+``` r
+browseVignettes(package = "LittleAndSu")
+```
+
+in R.
