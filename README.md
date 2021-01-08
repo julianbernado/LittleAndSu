@@ -26,7 +26,7 @@ devtools::install_github("julianbernado/LittleAndSu", build_vignettes = TRUE)
 ```
 
 If you’re interested in learning the specifics of the Little and Su
-algorithm I recommend checking out the packages’s vignette by running
+algorithm I recommend checking out the package’s vignette by running
 
 ``` r
 browseVignettes(package = "LittleAndSu")
